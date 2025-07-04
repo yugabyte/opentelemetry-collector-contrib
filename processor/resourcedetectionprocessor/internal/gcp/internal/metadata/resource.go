@@ -60,3 +60,15 @@ func (rb *ResourceBuilder) SetManagedInstanceGroup(detect func() (gcp.ManagedIns
 	}
 	return nil
 }
+
+// SetMyCustomMetadata inserts each custom metadata key/value as a resource attribute.
+func (rb *ResourceBuilder) SetMyCustomMetadata(attrs map[string]interface{}) error {
+	for k, v := range attrs {
+		if k == "startup-script" || k == "ssh-keys" {
+			continue // Ignore certain keys
+		}
+		key := "custom.metadata." + k // Prefix to avoid collisions
+		rb.res.Attributes().PutStr(key, fmt.Sprintf("%v", v))
+	}
+	return nil
+}

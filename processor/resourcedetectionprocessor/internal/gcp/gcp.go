@@ -5,6 +5,7 @@ package gcp // import "github.com/open-telemetry/opentelemetry-collector-contrib
 
 import (
 	"context"
+	"encoding/json"
 
 	"cloud.google.com/go/compute/metadata"
 	"github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp"
@@ -52,7 +53,20 @@ type detector struct {
 	rb       *localMetadata.ResourceBuilder
 }
 
-func (d *detector) Detect(context.Context) (resource pcommon.Resource, schemaURL string, err error) {
+// Extract all the custom metadata attributes from GCE instance metadata endpoint.
+func (d *detector) GCECustomMetadata(ctx context.Context) (map[string]interface{}, error) {
+	jsonStr, err := metadata.GetWithContext(ctx, "instance/attributes/?recursive=true&alt=json")
+	if err != nil {
+		return nil, err
+	}
+	var attrs map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &attrs); err != nil {
+		return nil, err
+	}
+	return attrs, nil
+}
+
+func (d *detector) Detect(ctx context.Context) (resource pcommon.Resource, schemaURL string, err error) {
 	if d.detector.CloudPlatform() == gcp.BareMetalSolution {
 		d.rb.SetCloudProvider(conventions.CloudProviderGCP.Value.AsString())
 		errs := d.rb.SetFromCallable(d.rb.SetCloudAccountID, d.detector.BareMetalSolutionProjectID)
@@ -155,6 +169,11 @@ func (d *detector) Detect(context.Context) (resource pcommon.Resource, schemaURL
 			d.rb.SetFromCallable(d.rb.SetGcpGceInstanceName, d.detector.GCEInstanceName),
 			d.rb.SetManagedInstanceGroup(d.detector.GCEManagedInstanceGroup),
 		)
+		if attrs, err := d.GCECustomMetadata(ctx); err == nil {
+			d.rb.SetMyCustomMetadata(attrs)
+		} else {
+			d.logger.Warn("Failed to get GCE custom metadata", zap.Error(err))
+		}
 	default:
 		// We don't support this platform yet, so just return with what we have
 	}
