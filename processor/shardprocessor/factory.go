@@ -20,7 +20,8 @@ func NewFactory() processor.Factory {
 
 func createDefaultConfig() component.Config {
 	return &Config{
-		NumShards: 2,
+		NumShards: 3,
+		ShardLabel: "universe_uuid"
 	}
 }
 

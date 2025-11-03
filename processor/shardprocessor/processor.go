@@ -46,13 +46,11 @@ func (sp *processorImp) ConsumeMetrics(ctx context.Context, md pmetric.Metrics) 
 		labelValue, exists := attrs.Get(labelKey)
 
 		var shardID int
-		shouldInjectShardID := false
 
 		if exists && labelValue.Type() == pcommon.ValueTypeStr {
 			strVal := labelValue.Str()
 			if strVal != "" {
 				shardID = sp.calculateShardID(strVal)
-				shouldInjectShardID = true
 			} else {
 				shardID = 0
 			}
@@ -60,9 +58,7 @@ func (sp *processorImp) ConsumeMetrics(ctx context.Context, md pmetric.Metrics) 
 			shardID = 0
 		}
 
-		if shouldInjectShardID {
-			attrs.PutStr("shard_id", fmt.Sprintf("%d", shardID))
-		}
+		attrs.PutStr("shard_id", fmt.Sprintf("%d", shardID))
 	}
 
 	return sp.next.ConsumeMetrics(ctx, md)
