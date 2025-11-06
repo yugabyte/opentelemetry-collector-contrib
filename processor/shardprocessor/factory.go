@@ -20,8 +20,8 @@ func NewFactory() processor.Factory {
 
 func createDefaultConfig() component.Config {
 	return &Config{
-		NumShards: 3,
-		ShardLabel: "universe_uuid"
+		NumShards:   1,
+		ShardLabels: []string{"universe_uuid"},
 	}
 }
 
@@ -31,9 +31,19 @@ func createMetricsProcessor(
 	cfg component.Config,
 	next consumer.Metrics,
 ) (processor.Metrics, error) {
+
 	config, ok := cfg.(*Config)
 	if !ok {
 		return nil, errors.New("invalid configuration for shardprocessor")
 	}
+
+	if config.NumShards <= 0 {
+		return nil, errors.New("num_shards must be > 0")
+	}
+
+	if len(config.ShardLabels) == 0 {
+		return nil, errors.New("shard_labels must contain at least one label key")
+	}
+
 	return New(config, next)
 }

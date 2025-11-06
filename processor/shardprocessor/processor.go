@@ -36,32 +36,93 @@ func (sp *processorImp) Capabilities() consumer.Capabilities {
 	return consumer.Capabilities{MutatesData: true}
 }
 
+func (sp *processorImp) applyShardToNumberDataPoints(dps pmetric.NumberDataPointSlice) {
+	for i := 0; i < dps.Len(); i++ {
+		sp.applyShardToAttributes(dps.At(i).Attributes())
+	}
+}
+
+func (sp *processorImp) applyShardToHistogramDataPoints(dps pmetric.HistogramDataPointSlice) {
+	for i := 0; i < dps.Len(); i++ {
+		sp.applyShardToAttributes(dps.At(i).Attributes())
+	}
+}
+
+func (sp *processorImp) applyShardToSummaryDataPoints(dps pmetric.SummaryDataPointSlice) {
+	for i := 0; i < dps.Len(); i++ {
+		sp.applyShardToAttributes(dps.At(i).Attributes())
+	}
+}
+
+// Please see the below links for more details of implementation
+// https://github.com/open-telemetry/opentelemetry-proto/blob/main/opentelemetry/proto/metrics/v1/metrics.proto
+// https://pkg.go.dev/go.opentelemetry.io/collector/pdata/pmetric#Metric
+//
+//
+// MetricsData
+// └─── ResourceMetrics
+//   ├── Resource
+//   ├── SchemaURL
+//   └── ScopeMetrics
+//      ├── Scope
+//      ├── SchemaURL
+//      └── Metric
+//         ├── Name
+//         ├── Description
+//         ├── Unit
+//         └── data
+//            ├── Gauge
+//            ├── Sum
+//            ├── Histogram
+//            ├── ExponentialHistogram
+//            └── Summary
+
 func (sp *processorImp) ConsumeMetrics(ctx context.Context, md pmetric.Metrics) error {
 	rms := md.ResourceMetrics()
 	for i := 0; i < rms.Len(); i++ {
 		rm := rms.At(i)
-		attrs := rm.Resource().Attributes()
+		scopeMetrics := rm.ScopeMetrics()
 
-		labelKey := sp.config.ShardLabel
-		labelValue, exists := attrs.Get(labelKey)
+		for j := 0; j < scopeMetrics.Len(); j++ {
+			sm := scopeMetrics.At(j)
+			metrics := sm.Metrics()
 
-		var shardID int
+			for k := 0; k < metrics.Len(); k++ {
+				m := metrics.At(k)
 
-		if exists && labelValue.Type() == pcommon.ValueTypeStr {
-			strVal := labelValue.Str()
-			if strVal != "" {
-				shardID = sp.calculateShardID(strVal)
-			} else {
-				shardID = 0
+				switch m.Type() {
+				case pmetric.MetricTypeGauge:
+					sp.applyShardToNumberDataPoints(m.Gauge().DataPoints())
+				case pmetric.MetricTypeSum:
+					sp.applyShardToNumberDataPoints(m.Sum().DataPoints())
+				case pmetric.MetricTypeHistogram:
+					sp.applyShardToHistogramDataPoints(m.Histogram().DataPoints())
+				case pmetric.MetricTypeSummary:
+					sp.applyShardToSummaryDataPoints(m.Summary().DataPoints())
+				}
+
 			}
-		} else {
-			shardID = 0
 		}
-
-		attrs.PutStr("shard_id", fmt.Sprintf("%d", shardID))
 	}
 
 	return sp.next.ConsumeMetrics(ctx, md)
+}
+
+func (sp *processorImp) applyShardToAttributes(attrs pcommon.Map) {
+	shardID := 0
+
+	// Priority = order of keys in the shard_labels config list
+	for _, key := range sp.config.ShardLabels {
+		if val, ok := attrs.Get(key); ok && val.Type() == pcommon.ValueTypeStr {
+			s := val.Str()
+			if s != "" {
+				shardID = sp.calculateShardID(s)
+				break
+			}
+		}
+	}
+
+	attrs.PutStr("shard_id", fmt.Sprintf("%d", shardID))
 }
 
 func (sp *processorImp) calculateShardID(name string) int {
