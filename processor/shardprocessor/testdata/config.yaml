@@ -1,0 +1,17 @@
+receivers:
+  nop: {}
+
+processors:
+  shardprocessor:
+    num_shards: 6
+    shard_labels: ["universe_uuid", "job"]
+
+exporters:
+  nop: {}
+
+service:
+  pipelines:
+    metrics:
+      receivers: [nop]
+      processors: [shardprocessor]
+      exporters: [nop]
