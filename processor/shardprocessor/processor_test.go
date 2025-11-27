@@ -129,3 +129,26 @@ func BenchmarkApplyShardToAttributes(b *testing.B) {
 		p.applyShardToAttributes(attrs)
 	}
 }
+
+func TestCalculateShardID_KnownUniverseUUIDs(t *testing.T) {
+	p := newProcessor(8, nil)
+
+	tests := []struct {
+		uuid     string
+		expected int
+	}{
+		{"0acc4e79-4dc7-4f05-b7d5-9b01f31b5aef", 1},
+		{"beac01ad-18e2-499b-b542-192dadce0f02", 2},
+		{"a46b68ca-413f-488b-bb51-8bd2a054f285", 4},
+		{"ed4c6b65-1c82-4024-944b-9fb6e7cb1959", 6},
+		{"c380ccbe-b613-4aef-a5e9-b03a243c5816", 5},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.uuid, func(t *testing.T) {
+			if got := p.calculateShardID(tt.uuid); got != tt.expected {
+				t.Fatalf("expected shard %d, got %d", tt.expected, got)
+			}
+		})
+	}
+}
