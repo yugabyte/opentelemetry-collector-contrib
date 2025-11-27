@@ -2,8 +2,9 @@ package shardprocessor
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/binary"
 	"fmt"
-	"hash/fnv"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
@@ -126,7 +127,8 @@ func (sp *processorImp) applyShardToAttributes(attrs pcommon.Map) {
 }
 
 func (sp *processorImp) calculateShardID(name string) int {
-	hasher := fnv.New32a()
-	_, _ = hasher.Write([]byte(name))
-	return int(hasher.Sum32() % uint32(sp.config.NumShards))
+	// Prometheus hashmod: https://github.com/prometheus/prometheus/blob/d344ea7bf4cc9e9e131a0318d10025982e9c4cc1/model/relabel/relabel.go#L290-L294
+	sum := md5.Sum([]byte(name))
+	last8 := binary.BigEndian.Uint64(sum[8:])
+	return int(last8 % uint64(sp.config.NumShards))
 }
