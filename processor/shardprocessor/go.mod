@@ -1,8 +1,9 @@
-module github.com/yugabyte/opentelemetry-collector-contrib/processor/shardprocessor
+module github.com/open-telemetry/opentelemetry-collector-contrib/processor/shardprocessor
 
 go 1.24.0
 
 require (
+	github.com/yugabyte/opentelemetry-collector-contrib/processor/shardprocessor v0.0.0-20251106114432-d36ed552ede3
 	go.opentelemetry.io/collector/component v1.45.0
 	go.opentelemetry.io/collector/consumer v1.45.0
 	go.opentelemetry.io/collector/consumer/consumertest v0.139.0

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/yugabyte/opentelemetry-collector-contrib/processor/shardprocessor/internal/metadata"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/processor/shardprocessor/internal/metadata"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/processor"
