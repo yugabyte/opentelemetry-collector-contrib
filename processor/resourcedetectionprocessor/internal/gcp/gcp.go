@@ -6,6 +6,7 @@ package gcp // import "github.com/open-telemetry/opentelemetry-collector-contrib
 import (
 	"context"
 	"regexp"
+	"strings"
 	"time"
 
 	compute "cloud.google.com/go/compute/apiv1"
@@ -178,19 +179,41 @@ func (d *detector) Detect(ctx context.Context) (resource pcommon.Resource, schem
 			return res, conventions.SchemaURL, errs
 		}
 
+		// Try to fetch labels via Compute API first (requires service account with compute.viewer role)
+		var labels map[string]string
 		instClient, cerr := d.gceClientBuilder.buildClient(ctx)
+		if cerr == nil {
+			defer instClient.Close()
+			labels, cerr = fetchGCELabels(ctx, instClient, projectID, zone, name, d.labelKeyRegexes)
+			if cerr == nil {
+				if len(labels) > 0 {
+					d.logger.Debug("successfully fetched GCE labels via Compute API", zap.Int("count", len(labels)))
+				} else {
+					d.logger.Debug("Compute API succeeded but no matching labels found")
+				}
+			}
+		}
+
+		// Fallback to instance metadata only if Compute API fails (no service account, no permissions, etc.)
+		// If Compute API succeeds (even with 0 labels), we trust its authoritative result
 		if cerr != nil {
-			d.logger.Warn("failed to build GCE instances client", zap.Error(cerr))
-			return res, conventions.SchemaURL, errs
+			d.logger.Debug("Compute API failed, falling back to instance metadata", zap.Error(cerr))
+			metadataLabels, merr := fetchGCELabelsFromMetadata(ctx, d.labelKeyRegexes)
+			if merr == nil && len(metadataLabels) > 0 {
+				d.logger.Debug("successfully fetched labels from instance metadata", zap.Int("count", len(metadataLabels)))
+				labels = metadataLabels
+			} else {
+				// Both Compute API and metadata fallback failed
+				if merr != nil {
+					d.logger.Warn("failed to fetch GCE labels from both Compute API and instance metadata", zap.Error(cerr), zap.Error(merr))
+				} else {
+					// Metadata succeeded but returned no matching labels
+					d.logger.Debug("instance metadata fallback succeeded but no matching labels found")
+				}
+			}
 		}
-		defer instClient.Close()
 
-		labels, ferr := fetchGCELabels(ctx, instClient, projectID, zone, name, d.labelKeyRegexes)
-		if ferr != nil {
-			d.logger.Warn("failed fetching GCE labels", zap.Error(ferr))
-			return res, conventions.SchemaURL, errs
-		}
-
+		// Add labels to resource attributes
 		if len(labels) > 0 {
 			attrs := res.Attributes()
 			for k, v := range labels {
@@ -272,4 +295,50 @@ func regexArrayMatch(arr []*regexp.Regexp, val string) bool {
 		}
 	}
 	return false
+}
+
+// fetchGCELabelsFromMetadata fetches labels from GCE instance metadata server as a fallback
+// when the Compute API is not available (e.g., no service account or insufficient permissions).
+// This uses the instance/attributes endpoint which is accessible without special IAM permissions.
+// The logic matches upstream fetchGCELabels exactly, only the fetch mechanism differs.
+func fetchGCELabelsFromMetadata(ctx context.Context, labelKeyRegexes []*regexp.Regexp) (map[string]string, error) {
+	// First, get the list of all attribute keys (more efficient than fetching all values)
+	keysRaw, err := metadata.GetWithContext(ctx, "instance/attributes/")
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse the newline-separated list of keys
+	keysList := strings.Split(strings.TrimSpace(keysRaw), "\n")
+	if len(keysList) == 0 || (len(keysList) == 1 && keysList[0] == "") {
+		// No attributes found
+		return make(map[string]string), nil
+	}
+
+	// Filter keys by regex patterns (same logic as upstream fetchGCELabels)
+	matchingKeys := make([]string, 0)
+	for _, key := range keysList {
+		// Only include keys that match the label regex patterns (same as upstream)
+		if regexArrayMatch(labelKeyRegexes, key) {
+			matchingKeys = append(matchingKeys, key)
+		}
+	}
+
+	if len(matchingKeys) == 0 {
+		// No matching keys found
+		return make(map[string]string), nil
+	}
+
+	// Fetch only the matching attributes (one API call per key)
+	out := make(map[string]string, len(matchingKeys))
+	for _, key := range matchingKeys {
+		val, err := metadata.GetWithContext(ctx, "instance/attributes/"+key)
+		if err != nil {
+			// Skip attributes that fail to fetch (may have been deleted)
+			continue
+		}
+		out[key] = val
+	}
+
+	return out, nil
 }
